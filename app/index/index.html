@@ -1,0 +1,1035 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fluxo — Controle Financeiro</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="../css/index.css" />
+    <script src="../js/auth.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  </head>
+  <body>
+    <div
+      class="sidebar-overlay"
+      id="sidebarOverlay"
+      onclick="toggleSidebar()"
+    ></div>
+
+    <div class="app">
+      <!-- SIDEBAR -->
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-logo">
+          <div class="logo-icon">💸</div>
+          <div class="logo-text">Flu<span>xo</span></div>
+        </div>
+        <nav class="sidebar-nav">
+          <button class="nav-item active" onclick="showView('dashboard')">
+            <span class="icon">📊</span> Dashboard
+          </button>
+          <button class="nav-item" onclick="showView('transactions')">
+            <span class="icon">📋</span> Lançamentos
+          </button>
+        </nav>
+        <div class="sidebar-bottom">
+          <button class="nav-item" onclick="openExport()">
+            <span class="icon">📤</span> Exportar CSV
+          </button>
+        </div>
+      </aside>
+
+      <!-- MAIN -->
+      <div class="main">
+        <!-- TOPBAR -->
+        <header class="topbar">
+          <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
+          <div class="topbar-title" id="topbarTitle">Dashboard</div>
+
+          <div class="period-nav">
+            <button class="period-btn" onclick="prevPeriod()">‹</button>
+            <span class="period-label" id="periodLabel">—</span>
+            <button class="period-btn" onclick="nextPeriod()">›</button>
+          </div>
+
+          <div class="view-toggle">
+            <button
+              class="view-btn active"
+              id="viewMonth"
+              onclick="setView('month')"
+            >
+              Mês
+            </button>
+            <button class="view-btn" id="viewYear" onclick="setView('year')">
+              Ano
+            </button>
+          </div>
+
+          <button class="btn-add" onclick="openModal()">+ Novo</button>
+
+          <button
+            class="theme-toggle"
+            onclick="toggleTheme()"
+            title="Alternar tema"
+          >
+            🌙
+          </button>
+
+          <button class="theme-toggle" onclick="logout()" title="Sair">
+            ⏻
+          </button>
+        </header>
+
+        <!-- CONTENT -->
+        <main class="content" id="mainContent">
+          <!-- injected dynamically -->
+        </main>
+      </div>
+    </div>
+
+    <!-- MODAL -->
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal">
+        <div class="modal-header">
+          <h2 class="modal-title" id="modalTitle">Novo Lançamento</h2>
+          <button class="modal-close" onclick="closeModal()">✕</button>
+        </div>
+
+        <div class="type-toggle">
+          <button
+            class="type-btn income"
+            id="typeIncome"
+            onclick="setType('income')"
+          >
+            ↑ Receita
+          </button>
+          <button
+            class="type-btn expense active"
+            id="typeExpense"
+            onclick="setType('expense')"
+          >
+            ↓ Despesa
+          </button>
+        </div>
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label">Descrição</label>
+            <input
+              class="form-input"
+              id="fDesc"
+              type="text"
+              placeholder="Ex: Salário, Aluguel..."
+            />
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Valor (R$)</label>
+              <input
+                class="form-input"
+                id="fValue"
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="0,00"
+              />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Data</label>
+              <input class="form-input" id="fDate" type="date" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Categoria</label>
+            <input
+              class="form-input"
+              id="fCat"
+              type="text"
+              list="catList"
+              placeholder="Alimentação, Transporte..."
+            />
+            <datalist id="catList"></datalist>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn-cancel" onclick="closeModal()">Cancelar</button>
+          <button class="btn-save" onclick="saveTransaction()">Salvar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CONFIRM DELETE -->
+    <div class="confirm-overlay" id="confirmOverlay">
+      <div class="confirm-box">
+        <div class="icon">🗑️</div>
+        <h3>Excluir lançamento?</h3>
+        <p>Esta ação não pode ser desfeita.</p>
+        <div class="confirm-actions">
+          <button class="btn-cancel" onclick="closeConfirm()">Cancelar</button>
+          <button class="btn-confirm-del" onclick="confirmDelete()">
+            Excluir
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- TOASTS -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script>
+      (function checkAuth() {
+        const user = localStorage.getItem("loggedUser");
+        if (!user) {
+          window.location.href = "../login/login.html";
+        }
+      })();
+
+      /* ══════════════════════════════════════════════
+   STATE
+══════════════════════════════════════════════ */
+      let transactions = [];
+      let currentDate = new Date();
+      let periodView = "month"; // 'month' | 'year'
+      let editingId = null;
+      let deletingId = null;
+      let currentType = "expense";
+      let sortCol = "date";
+      let sortDir = "desc";
+      let filterCat = "";
+      let filterType = "";
+      let currentPage = "dashboard";
+      let pieChart = null;
+      let barChart = null;
+
+      const COLORS = [
+        "#00E5A0",
+        "#4B9EFF",
+        "#FFD166",
+        "#FF4D6D",
+        "#A78BFA",
+        "#FB923C",
+        "#34D399",
+        "#F472B6",
+        "#60A5FA",
+        "#FBBF24",
+      ];
+
+      /* ══════════════════════════════════════════════
+   STORAGE
+══════════════════════════════════════════════ */
+      function save() {
+        localStorage.setItem(
+          "fluxo_transactions",
+          JSON.stringify(transactions),
+        );
+      }
+      function load() {
+        const d = localStorage.getItem("fluxo_transactions");
+        transactions = d ? JSON.parse(d) : [];
+      }
+
+      /* ══════════════════════════════════════════════
+   DATE HELPERS
+══════════════════════════════════════════════ */
+      const MONTHS = [
+        "Janeiro",
+        "Fevereiro",
+        "Março",
+        "Abril",
+        "Maio",
+        "Junho",
+        "Julho",
+        "Agosto",
+        "Setembro",
+        "Outubro",
+        "Novembro",
+        "Dezembro",
+      ];
+
+      function getPeriodLabel() {
+        if (periodView === "month")
+          return `${MONTHS[currentDate.getMonth()]} ${currentDate.getFullYear()}`;
+        return `${currentDate.getFullYear()}`;
+      }
+
+      function inPeriod(tx) {
+        const d = new Date(tx.date + "T00:00:00");
+        if (periodView === "month")
+          return (
+            d.getMonth() === currentDate.getMonth() &&
+            d.getFullYear() === currentDate.getFullYear()
+          );
+        return d.getFullYear() === currentDate.getFullYear();
+      }
+
+      function prevPeriod() {
+        if (periodView === "month") {
+          currentDate = new Date(
+            currentDate.getFullYear(),
+            currentDate.getMonth() - 1,
+            1,
+          );
+        } else {
+          currentDate = new Date(currentDate.getFullYear() - 1, 0, 1);
+        }
+        render();
+      }
+      function nextPeriod() {
+        if (periodView === "month") {
+          currentDate = new Date(
+            currentDate.getFullYear(),
+            currentDate.getMonth() + 1,
+            1,
+          );
+        } else {
+          currentDate = new Date(currentDate.getFullYear() + 1, 0, 1);
+        }
+        render();
+      }
+      function setView(v) {
+        periodView = v;
+        document
+          .getElementById("viewMonth")
+          .classList.toggle("active", v === "month");
+        document
+          .getElementById("viewYear")
+          .classList.toggle("active", v === "year");
+        render();
+      }
+
+      /* ══════════════════════════════════════════════
+   CATEGORIES
+══════════════════════════════════════════════ */
+      function getCategories() {
+        const cats = [
+          ...new Set(transactions.map((t) => t.category).filter(Boolean)),
+        ];
+        const defaults = [
+          "Alimentação",
+          "Transporte",
+          "Moradia",
+          "Saúde",
+          "Lazer",
+          "Educação",
+          "Salário",
+          "Freelance",
+          "Investimento",
+          "Outros",
+        ];
+        return [...new Set([...cats, ...defaults])].sort();
+      }
+
+      function updateCatList() {
+        const dl = document.getElementById("catList");
+        if (!dl) return;
+        dl.innerHTML = getCategories()
+          .map((c) => `<option value="${c}">`)
+          .join("");
+      }
+
+      /* ══════════════════════════════════════════════
+   FILTER / SORT
+══════════════════════════════════════════════ */
+      function getFiltered() {
+        let txs = transactions.filter(inPeriod);
+        if (filterCat) txs = txs.filter((t) => t.category === filterCat);
+        if (filterType) txs = txs.filter((t) => t.type === filterType);
+        txs.sort((a, b) => {
+          let va = a[sortCol],
+            vb = b[sortCol];
+          if (sortCol === "value") {
+            va = Number(va);
+            vb = Number(vb);
+          }
+          if (va < vb) return sortDir === "asc" ? -1 : 1;
+          if (va > vb) return sortDir === "asc" ? 1 : -1;
+          return 0;
+        });
+        return txs;
+      }
+
+      function sortBy(col) {
+        if (sortCol === col) sortDir = sortDir === "asc" ? "desc" : "asc";
+        else {
+          sortCol = col;
+          sortDir = col === "date" ? "desc" : "asc";
+        }
+        render();
+      }
+
+      /* ══════════════════════════════════════════════
+   TOTALS
+══════════════════════════════════════════════ */
+      function getTotals(txs) {
+        let income = 0,
+          expense = 0;
+        txs.forEach((t) => {
+          if (t.type === "income") income += Number(t.value);
+          else expense += Number(t.value);
+        });
+        return { income, expense, balance: income - expense };
+      }
+
+      function fmt(n) {
+        return n.toLocaleString("pt-BR", {
+          style: "currency",
+          currency: "BRL",
+        });
+      }
+
+      /* ══════════════════════════════════════════════
+   CHART DATA
+══════════════════════════════════════════════ */
+      function getPieData(txs) {
+        const cats = {};
+        txs
+          .filter((t) => t.type === "expense")
+          .forEach((t) => {
+            cats[t.category] = (cats[t.category] || 0) + Number(t.value);
+          });
+        const labels = Object.keys(cats);
+        const data = labels.map((l) => cats[l]);
+        return { labels, data };
+      }
+
+      function getBarData() {
+        if (periodView === "month") {
+          // by week
+          const weeks = Array.from({ length: 5 }, () => ({
+            income: 0,
+            expense: 0,
+          }));
+          transactions.filter(inPeriod).forEach((t) => {
+            const d = new Date(t.date + "T00:00:00");
+            const w = Math.min(Math.floor((d.getDate() - 1) / 7), 4);
+            if (t.type === "income") weeks[w].income += Number(t.value);
+            else weeks[w].expense += Number(t.value);
+          });
+          return {
+            labels: ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5"],
+            income: weeks.map((w) => w.income),
+            expense: weeks.map((w) => w.expense),
+          };
+        } else {
+          // by month
+          const months = Array.from({ length: 12 }, () => ({
+            income: 0,
+            expense: 0,
+          }));
+          transactions
+            .filter(
+              (t) =>
+                new Date(t.date + "T00:00:00").getFullYear() ===
+                currentDate.getFullYear(),
+            )
+            .forEach((t) => {
+              const m = new Date(t.date + "T00:00:00").getMonth();
+              if (t.type === "income") months[m].income += Number(t.value);
+              else months[m].expense += Number(t.value);
+            });
+          return {
+            labels: MONTHS.map((m) => m.slice(0, 3)),
+            income: months.map((m) => m.income),
+            expense: months.map((m) => m.expense),
+          };
+        }
+      }
+
+      /* ══════════════════════════════════════════════
+   RENDER
+══════════════════════════════════════════════ */
+      function render() {
+        document.getElementById("periodLabel").textContent = getPeriodLabel();
+        if (currentPage === "dashboard") renderDashboard();
+        else renderTransactions();
+      }
+
+      function renderDashboard() {
+        const periodTxs = transactions.filter(inPeriod);
+        const totals = getTotals(periodTxs);
+        const pie = getPieData(periodTxs);
+        const bar = getBarData();
+        const txs = getFiltered();
+
+        const isDark =
+          document.documentElement.getAttribute("data-theme") === "dark";
+        const gridColor = isDark
+          ? "rgba(255,255,255,0.05)"
+          : "rgba(0,0,0,0.05)";
+        const labelColor = isDark ? "#8A90A8" : "#5A607A";
+
+        document.getElementById("mainContent").innerHTML = `
+    <!-- CARDS -->
+    <div class="cards-row">
+      <div class="card yellow">
+        <div class="card-label"><span class="dot"></span>Saldo</div>
+        <div class="card-value" style="color:${totals.balance >= 0 ? "var(--green)" : "var(--red)"}">${fmt(totals.balance)}</div>
+        <div class="card-sub">${periodTxs.length} lançamento${periodTxs.length !== 1 ? "s" : ""} no período</div>
+      </div>
+      <div class="card green">
+        <div class="card-label"><span class="dot"></span>Receitas</div>
+        <div class="card-value">${fmt(totals.income)}</div>
+        <div class="card-sub">${periodTxs.filter((t) => t.type === "income").length} entrada${periodTxs.filter((t) => t.type === "income").length !== 1 ? "s" : ""}</div>
+      </div>
+      <div class="card red">
+        <div class="card-label"><span class="dot"></span>Despesas</div>
+        <div class="card-value">${fmt(totals.expense)}</div>
+        <div class="card-sub">${periodTxs.filter((t) => t.type === "expense").length} saída${periodTxs.filter((t) => t.type === "expense").length !== 1 ? "s" : ""}</div>
+      </div>
+    </div>
+
+    <!-- CHARTS -->
+    <div class="charts-row">
+      <div class="chart-card">
+        <div class="chart-title">Despesas por Categoria
+          <span class="count-badge">${pie.labels.length} cat.</span>
+        </div>
+        <div class="chart-wrap">
+          ${pie.data.length ? '<canvas id="pieChart"></canvas>' : '<div class="no-chart"><div class="big">🍕</div><p>Sem despesas no período</p></div>'}
+        </div>
+        ${pie.data.length ? `<div class="pie-legend" id="pieLegend"></div>` : ""}
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Receitas vs Despesas
+          <span class="count-badge">${periodView === "month" ? "por semana" : "por mês"}</span>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="barChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- RECENT TRANSACTIONS -->
+    <div>
+      <div class="section-header">
+        <div class="section-title">Lançamentos Recentes</div>
+        ${txs.length ? `<span class="count-badge">${txs.length}</span>` : ""}
+        <div class="filters">
+          ${renderFilters()}
+        </div>
+      </div>
+    </div>
+    <div class="transactions-panel">
+      ${renderTxTable(txs.slice(0, 8))}
+      ${txs.length > 8 ? `<div style="padding:14px;text-align:center;"><button class="nav-item" onclick="showView('transactions')" style="display:inline-flex;gap:6px;">Ver todos os ${txs.length} lançamentos →</button></div>` : ""}
+    </div>
+  `;
+
+        // Build pie chart
+        if (pie.data.length) {
+          const ctx = document.getElementById("pieChart").getContext("2d");
+          if (pieChart) pieChart.destroy();
+          pieChart = new Chart(ctx, {
+            type: "doughnut",
+            data: {
+              labels: pie.labels,
+              datasets: [
+                {
+                  data: pie.data,
+                  backgroundColor: COLORS.slice(0, pie.labels.length),
+                  borderWidth: 2,
+                  borderColor: isDark ? "#13161E" : "#ffffff",
+                  hoverOffset: 6,
+                },
+              ],
+            },
+            options: {
+              cutout: "68%",
+              plugins: {
+                legend: { display: false },
+                tooltip: {
+                  callbacks: {
+                    label: (ctx) => ` ${ctx.label}: ${fmt(ctx.raw)}`,
+                  },
+                },
+              },
+              animation: { animateScale: true },
+            },
+          });
+          // Legend
+          const leg = document.getElementById("pieLegend");
+          if (leg)
+            leg.innerHTML = pie.labels
+              .map(
+                (l, i) =>
+                  `<div class="legend-item"><div class="legend-dot" style="background:${COLORS[i]}"></div>${l}</div>`,
+              )
+              .join("");
+        }
+
+        // Build bar chart
+        const bCtx = document.getElementById("barChart");
+        if (bCtx) {
+          if (barChart) barChart.destroy();
+          barChart = new Chart(bCtx.getContext("2d"), {
+            type: "bar",
+            data: {
+              labels: bar.labels,
+              datasets: [
+                {
+                  label: "Receitas",
+                  data: bar.income,
+                  backgroundColor: "rgba(0,229,160,0.7)",
+                  borderRadius: 6,
+                  borderSkipped: false,
+                },
+                {
+                  label: "Despesas",
+                  data: bar.expense,
+                  backgroundColor: "rgba(255,77,109,0.7)",
+                  borderRadius: 6,
+                  borderSkipped: false,
+                },
+              ],
+            },
+            options: {
+              responsive: true,
+              plugins: {
+                legend: {
+                  labels: { color: labelColor, font: { family: "'DM Sans'" } },
+                },
+                tooltip: {
+                  callbacks: {
+                    label: (ctx) => ` ${ctx.dataset.label}: ${fmt(ctx.raw)}`,
+                  },
+                },
+              },
+              scales: {
+                x: { grid: { color: gridColor }, ticks: { color: labelColor } },
+                y: {
+                  grid: { color: gridColor },
+                  ticks: {
+                    color: labelColor,
+                    callback: (v) =>
+                      "R$" + (v >= 1000 ? Math.round(v / 1000) + "k" : v),
+                  },
+                },
+              },
+            },
+          });
+        }
+      }
+
+      function renderTransactions() {
+        const txs = getFiltered();
+        document.getElementById("mainContent").innerHTML = `
+    <div class="section-header">
+      <div class="section-title">Lançamentos <span class="count-badge">${txs.length}</span></div>
+      <div class="filters">${renderFilters()}</div>
+    </div>
+    <div class="transactions-panel">
+      ${renderTxTable(txs)}
+    </div>
+  `;
+      }
+
+      function renderFilters() {
+        const cats = getCategories();
+        return `
+    <select class="filter-select" onchange="filterCat=this.value;render()">
+      <option value="">Todas as categorias</option>
+      ${cats.map((c) => `<option value="${c}" ${filterCat === c ? "selected" : ""}>${c}</option>`).join("")}
+    </select>
+    <select class="filter-select" onchange="filterType=this.value;render()">
+      <option value="">Todos os tipos</option>
+      <option value="income" ${filterType === "income" ? "selected" : ""}>Receitas</option>
+      <option value="expense" ${filterType === "expense" ? "selected" : ""}>Despesas</option>
+    </select>
+  `;
+      }
+
+      function renderTxTable(txs) {
+        if (!txs.length)
+          return `
+    <div class="empty-state">
+      <div class="big">📭</div>
+      <p>Nenhum lançamento encontrado</p>
+    </div>`;
+
+        const sortIcon = (col) => {
+          if (sortCol !== col) return '<span class="sort-icon">↕</span>';
+          return `<span class="sort-icon">${sortDir === "asc" ? "↑" : "↓"}</span>`;
+        };
+
+        return `
+    <table class="tx-table">
+      <thead>
+        <tr>
+          <th onclick="sortBy('description')" class="${sortCol === "description" ? "sorted" : ""}">Descrição ${sortIcon("description")}</th>
+          <th onclick="sortBy('category')" class="${sortCol === "category" ? "sorted" : ""}">Categoria ${sortIcon("category")}</th>
+          <th onclick="sortBy('value')" class="${sortCol === "value" ? "sorted" : ""}">Valor ${sortIcon("value")}</th>
+          <th onclick="sortBy('date')" class="${sortCol === "date" ? "sorted" : ""}">Data ${sortIcon("date")}</th>
+          <th>Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${txs
+          .map(
+            (t) => `
+          <tr>
+            <td><div class="tx-desc">${escHtml(t.description)}</div></td>
+            <td><span class="tx-cat">${escHtml(t.category || "—")}</span></td>
+            <td><span class="tx-amount ${t.type}">${t.type === "income" ? "+" : "−"} ${fmt(Number(t.value))}</span></td>
+            <td class="tx-date">${formatDate(t.date)}</td>
+            <td>
+              <div class="tx-actions">
+                <button class="action-btn" onclick="editTransaction('${t.id}')" title="Editar">✏️</button>
+                <button class="action-btn del" onclick="askDelete('${t.id}')" title="Excluir">🗑</button>
+              </div>
+            </td>
+          </tr>
+        `,
+          )
+          .join("")}
+      </tbody>
+    </table>
+  `;
+      }
+
+      function formatDate(d) {
+        if (!d) return "—";
+        const [y, m, day] = d.split("-");
+        return `${day}/${m}/${y}`;
+      }
+      function escHtml(str) {
+        return String(str)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      /* ══════════════════════════════════════════════
+   VIEWS
+══════════════════════════════════════════════ */
+      function showView(v) {
+        currentPage = v;
+        // update sidebar
+        document.querySelectorAll(".nav-item").forEach((el, i) => {
+          el.classList.toggle(
+            "active",
+            (i === 0 && v === "dashboard") || (i === 1 && v === "transactions"),
+          );
+        });
+        const titles = { dashboard: "Dashboard", transactions: "Lançamentos" };
+        document.getElementById("topbarTitle").textContent = titles[v] || "";
+        closeSidebar();
+        render();
+      }
+
+      /* ══════════════════════════════════════════════
+   MODAL
+══════════════════════════════════════════════ */
+      function openModal(id) {
+        editingId = id || null;
+        const overlay = document.getElementById("modalOverlay");
+        overlay.classList.add("open");
+        updateCatList();
+
+        if (id) {
+          const tx = transactions.find((t) => t.id === id);
+          document.getElementById("modalTitle").textContent =
+            "Editar Lançamento";
+          document.getElementById("fDesc").value = tx.description;
+          document.getElementById("fValue").value = tx.value;
+          document.getElementById("fDate").value = tx.date;
+          document.getElementById("fCat").value = tx.category || "";
+          setType(tx.type);
+        } else {
+          document.getElementById("modalTitle").textContent = "Novo Lançamento";
+          document.getElementById("fDesc").value = "";
+          document.getElementById("fValue").value = "";
+          document.getElementById("fDate").value = new Date()
+            .toISOString()
+            .slice(0, 10);
+          document.getElementById("fCat").value = "";
+          setType("expense");
+        }
+        setTimeout(() => document.getElementById("fDesc").focus(), 100);
+      }
+
+      function closeModal() {
+        document.getElementById("modalOverlay").classList.remove("open");
+        editingId = null;
+      }
+
+      function setType(t) {
+        currentType = t;
+        document
+          .getElementById("typeIncome")
+          .classList.toggle("active", t === "income");
+        document
+          .getElementById("typeExpense")
+          .classList.toggle("active", t === "expense");
+      }
+
+      function saveTransaction() {
+        const desc = document.getElementById("fDesc").value.trim();
+        const val = parseFloat(document.getElementById("fValue").value);
+        const date = document.getElementById("fDate").value;
+        const cat = document.getElementById("fCat").value.trim();
+
+        if (!desc) return shake("fDesc");
+        if (!val || val <= 0) return shake("fValue");
+        if (!date) return shake("fDate");
+
+        if (editingId) {
+          const i = transactions.findIndex((t) => t.id === editingId);
+          transactions[i] = {
+            ...transactions[i],
+            description: desc,
+            value: val,
+            date,
+            category: cat,
+            type: currentType,
+          };
+          toast("Lançamento atualizado ✓", "✏️");
+        } else {
+          transactions.push({
+            id: crypto.randomUUID(),
+            description: desc,
+            value: val,
+            date,
+            category: cat,
+            type: currentType,
+            createdAt: Date.now(),
+          });
+          toast("Lançamento adicionado ✓", "✅");
+        }
+        save();
+        closeModal();
+        render();
+      }
+
+      function shake(id) {
+        const el = document.getElementById(id);
+        el.style.borderColor = "var(--red)";
+        el.animate(
+          [
+            { transform: "translateX(-4px)" },
+            { transform: "translateX(4px)" },
+            { transform: "translateX(0)" },
+          ],
+          { duration: 250 },
+        );
+        setTimeout(() => (el.style.borderColor = ""), 1000);
+      }
+
+      /* ══════════════════════════════════════════════
+   DELETE
+══════════════════════════════════════════════ */
+      function askDelete(id) {
+        deletingId = id;
+        document.getElementById("confirmOverlay").classList.add("open");
+      }
+      function closeConfirm() {
+        document.getElementById("confirmOverlay").classList.remove("open");
+        deletingId = null;
+      }
+      function confirmDelete() {
+        transactions = transactions.filter((t) => t.id !== deletingId);
+        save();
+        closeConfirm();
+        render();
+        toast("Lançamento excluído", "🗑️");
+      }
+
+      function editTransaction(id) {
+        openModal(id);
+      }
+
+      /* ══════════════════════════════════════════════
+   EXPORT
+══════════════════════════════════════════════ */
+      function openExport() {
+        const period = transactions.filter(inPeriod);
+        const rows = [["Data", "Descrição", "Categoria", "Tipo", "Valor"]];
+        period.forEach((t) =>
+          rows.push([
+            t.date,
+            t.description,
+            t.category || "",
+            t.type === "income" ? "Receita" : "Despesa",
+            t.value,
+          ]),
+        );
+        const csv = rows
+          .map((r) =>
+            r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","),
+          )
+          .join("\n");
+        const blob = new Blob(["\uFEFF" + csv], {
+          type: "text/csv;charset=utf-8",
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `fluxo-${getPeriodLabel().replace(" ", "-")}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast("CSV exportado ✓", "📤");
+      }
+
+      /* ══════════════════════════════════════════════
+   THEME
+══════════════════════════════════════════════ */
+      function toggleTheme() {
+        const html = document.documentElement;
+        const next =
+          html.getAttribute("data-theme") === "dark" ? "light" : "dark";
+        html.setAttribute("data-theme", next);
+        localStorage.setItem("fluxo_theme", next);
+        document.querySelector(".theme-toggle").textContent =
+          next === "dark" ? "🌙" : "☀️";
+        render();
+      }
+
+      /* ══════════════════════════════════════════════
+   SIDEBAR MOBILE
+══════════════════════════════════════════════ */
+      function toggleSidebar() {
+        document.getElementById("sidebar").classList.toggle("open");
+        document.getElementById("sidebarOverlay").classList.toggle("open");
+      }
+      function closeSidebar() {
+        document.getElementById("sidebar").classList.remove("open");
+        document.getElementById("sidebarOverlay").classList.remove("open");
+      }
+
+      /* ══════════════════════════════════════════════
+   TOAST
+══════════════════════════════════════════════ */
+      function toast(msg, icon = "✓") {
+        const el = document.createElement("div");
+        el.className = "toast";
+        el.innerHTML = `<span>${icon}</span> ${msg}`;
+        document.getElementById("toastContainer").appendChild(el);
+        setTimeout(() => {
+          el.classList.add("out");
+          setTimeout(() => el.remove(), 300);
+        }, 2500);
+      }
+
+      /* ══════════════════════════════════════════════
+   KEYBOARD
+══════════════════════════════════════════════ */
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          closeModal();
+          closeConfirm();
+        }
+        if (
+          e.key === "Enter" &&
+          document.getElementById("modalOverlay").classList.contains("open")
+        ) {
+          if (!e.target.matches("textarea")) saveTransaction();
+        }
+      });
+
+      /* ══════════════════════════════════════════════
+   INIT
+══════════════════════════════════════════════ */
+      function init() {
+        load();
+        const theme = localStorage.getItem("fluxo_theme") || "dark";
+        document.documentElement.setAttribute("data-theme", theme);
+        document.querySelector(".theme-toggle").textContent =
+          theme === "dark" ? "🌙" : "☀️";
+
+        // Seed data if empty
+        if (!transactions.length) {
+          const now = new Date();
+          const y = now.getFullYear(),
+            m = String(now.getMonth() + 1).padStart(2, "0");
+          const seeds = [
+            {
+              type: "income",
+              description: "Salário",
+              category: "Salário",
+              value: 5500,
+              date: `${y}-${m}-05`,
+            },
+            {
+              type: "expense",
+              description: "Aluguel",
+              category: "Moradia",
+              value: 1400,
+              date: `${y}-${m}-07`,
+            },
+            {
+              type: "expense",
+              description: "Supermercado",
+              category: "Alimentação",
+              value: 380,
+              date: `${y}-${m}-10`,
+            },
+            {
+              type: "expense",
+              description: "Uber",
+              category: "Transporte",
+              value: 95,
+              date: `${y}-${m}-12`,
+            },
+            {
+              type: "income",
+              description: "Freelance Design",
+              category: "Freelance",
+              value: 1200,
+              date: `${y}-${m}-15`,
+            },
+            {
+              type: "expense",
+              description: "Academia",
+              category: "Saúde",
+              value: 120,
+              date: `${y}-${m}-16`,
+            },
+            {
+              type: "expense",
+              description: "Netflix",
+              category: "Lazer",
+              value: 45,
+              date: `${y}-${m}-18`,
+            },
+            {
+              type: "expense",
+              description: "Farmácia",
+              category: "Saúde",
+              value: 65,
+              date: `${y}-${m}-20`,
+            },
+            {
+              type: "expense",
+              description: "Restaurante",
+              category: "Alimentação",
+              value: 140,
+              date: `${y}-${m}-22`,
+            },
+            {
+              type: "income",
+              description: "Dividendos",
+              category: "Investimento",
+              value: 320,
+              date: `${y}-${m}-25`,
+            },
+          ];
+          seeds.forEach((s) =>
+            transactions.push({
+              ...s,
+              id: crypto.randomUUID(),
+              createdAt: Date.now(),
+            }),
+          );
+          save();
+        }
+        render();
+      }
+
+      init();
+    </script>
+  </body>
+</html>
